@@ -554,7 +554,7 @@ class Compound(object):
         """ """
         raise NotImplementedError('Interface to InterMol missing')
 
-    def save_gromacs(self, filename, traj, forcefield, force_overwrite=False, **kwargs):
+    def save_gromacs(self, filename, traj, forcefield, force_overwrite=False, chain_types=None, residue_types=None, **kwargs):
         """ """
         from foyer.forcefield import apply_forcefield
 
@@ -564,7 +564,7 @@ class Compound(object):
         top_filename = os.path.join(filepath, basename + '.top')
         gro_filename = os.path.join(filepath, basename + '.gro')
 
-        structure = self.to_parmed()
+        structure = self.to_parmed(chain_types=chain_types, residue_types=residue_types, **kwargs)
         if forcefield:
             structure = apply_forcefield(structure, forcefield=forcefield)
         structure.save(top_filename, 'gromacs', **kwargs)
@@ -763,11 +763,28 @@ class Compound(object):
                 top.add_bond(atom_mapping[atom1], atom_mapping[atom2])
         return top
 
-    def to_parmed(self, title=''):
+    def to_parmed(self, title='', chain_types=None, residue_types=None, **kwargs):
         """Create a ParmEd Structure from a Compound. """
         structure = pmd.Structure()
         structure.title = title if title else self.name
         atom_mapping = {}  # For creating bonds below
+
+        if isinstance(chain_types, Compound):
+            chain_types = [Compound]
+        if isinstance(chain_types, (list, set)):
+            chain_types = tuple(chain_types)
+
+        if isinstance(residue_types, Compound):
+            residue_types = [Compound]
+        if isinstance(residue_types, (list, set)):
+            residue_types = tuple(residue_types)
+        default_chain = 0
+        default_residue = 0
+        last_residue_compound = None
+        last_chain_compound = None
+        last_residue = 0
+        last_chain = 0
+
         for atom in self.particles():
             try:
                 atomic_number = AtomicNum[atom.name]
@@ -782,7 +799,36 @@ class Compound(object):
             pmd_atom = pmd.Atom(atomic_number=atomic_number, name=atom.name,
                                 mass=mass)
             pmd_atom.xx, pmd_atom.xy, pmd_atom.xz = atom.pos * 10  # Angstroms
-            structure.add_atom(pmd_atom, resname='RES', resnum=1)
+
+
+            # Chains
+            for parent in atom.ancestors():
+                if chain_types and isinstance(parent, chain_types):
+                    if parent != last_chain_compound:
+                        last_chain_compound = parent
+                        last_chain += 1
+                    current_chain = last_chain
+                    break
+            else:
+                current_chain = default_chain
+
+            # Residues
+            # for parent in atom.ancestors():
+            #     if residue_types and isinstance(parent, residue_types):
+            #         if parent != last_residue_compound:
+            #             last_residue_compound = parent
+            #             last_residue = top.add_residue(parent.__class__.__name__, last_chain)
+            #             last_residue.compound = last_residue_compound
+            #         break
+            # else:
+            #     if last_chain != default_chain:
+            #         last_residue = last_chain_default_residue
+            #     else:
+            #         last_residue = default_residue
+            #     last_residue.compound = last_residue_compound
+
+
+            structure.add_atom(pmd_atom, resname='RES', resnum=1, chain=chr(current_chain+ord('a')))
             atom_mapping[atom] = pmd_atom
 
         for atom1, atom2 in self.bonds():
