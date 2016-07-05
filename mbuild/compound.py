@@ -763,6 +763,51 @@ class Compound(object):
                 top.add_bond(atom_mapping[atom1], atom_mapping[atom2])
         return top
 
+    def from_parmed(self, structure, frame=-1, coords_only=False):
+        """Extract atoms and bonds from a ParmEd Structure
+
+        Will create sub-compounds for every chain if there is more than one
+        and sub-sub-compounds for every residue.
+
+        Parameters
+        ----------
+        structure : pmd.Structure
+            The structure to load.
+        frame : int
+            The frame to take coordinates from.
+
+        """
+        if coords_only:
+            if structure.natom != self.n_particles:
+                raise ValueError('Number of atoms in {structure} does not match {self}'.format(**locals()))
+            for parmed_atom, particle in zip(structure.atoms, self._particles(include_ports=False)):
+                particle.pos = structure.get_coordinates(frame)[parmed_atom.idx]
+            return
+
+        atom_mapping = dict()
+        top = structure.topology
+        for chain in top.chains:
+            if top.getNumChains() > 1:
+                chain_compound = Compound()
+                self.add(chain_compound, 'chain[$]')
+            else:
+                chain_compound = self
+            for res in chain.residues:
+                for atom in res.atoms:
+                    new_atom = Particle(name=str(atom.name), pos=structure.get_coordinates(frame)[atom.index]) #not sure if this indexing will work
+                    chain_compound.add(new_atom, label='{0}[$]'.format(atom.name))
+                    atom_mapping[atom] = new_atom
+
+        for parmed_atom1, parmed_atom2 in top.bonds:
+            atom1 = atom_mapping[parmed_atom1]
+            atom2 = atom_mapping[parmed_atom2]
+            self.add_bond((atom1, atom2))
+
+        if np.any(structure.box):
+            self.periodicity = structure.box[0:3]
+        else:
+            self.periodicity = np.array([0., 0., 0.])
+
     def to_parmed(self, title='', chain_types=None, residue_types=None, **kwargs):
         """Create a ParmEd Structure from a Compound. """
         structure = pmd.Structure()
@@ -813,19 +858,19 @@ class Compound(object):
                 current_chain = default_chain
 
             # Residues
-            # for parent in atom.ancestors():
-            #     if residue_types and isinstance(parent, residue_types):
-            #         if parent != last_residue_compound:
-            #             last_residue_compound = parent
-            #             last_residue = top.add_residue(parent.__class__.__name__, last_chain)
-            #             last_residue.compound = last_residue_compound
-            #         break
-            # else:
-            #     if last_chain != default_chain:
-            #         last_residue = last_chain_default_residue
-            #     else:
-            #         last_residue = default_residue
-            #     last_residue.compound = last_residue_compound
+            for parent in atom.ancestors():
+                if residue_types and isinstance(parent, residue_types):
+                    if parent != last_residue_compound:
+                        last_residue_compound = parent
+                        last_residue = top.add_residue(parent.__class__.__name__, last_chain)
+                        last_residue.compound = last_residue_compound
+                    break
+            else:
+                if last_chain != default_chain:
+                    last_residue = last_chain_default_residue
+                else:
+                    last_residue = default_residue
+                last_residue.compound = last_residue_compound
 
 
             structure.add_atom(pmd_atom, resname='RES', resnum=1, chain=chr(current_chain+ord('a')))
