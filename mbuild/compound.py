@@ -870,8 +870,6 @@ class Compound(object):
                     last_residue = last_chain_default_residue
                 else:
                     last_residue = default_residue
-                last_residue.compound = last_residue_compound
-
 
             structure.add_atom(pmd_atom, resname='RES', resnum=1, chain=chr(current_chain+ord('a')))
             atom_mapping[atom] = pmd_atom
